@@ -1,0 +1,10 @@
+*.jl.cov
+*.jl.*.cov
+*.jl.mem
+.DS_Store
+gitignore
+/paper/paper.*
+!/paper/paper.tex
+src/covariances/lcdm_covariance.csv
+src/chain_data/pico3_tailmonty_v33.dat
+
