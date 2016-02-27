@@ -24,23 +24,22 @@ ToDo:
 
 =#
 
-using Optim, Distributions
-using PyCall, PyPlot 
+using LDAforCMB
+using Optim, Distributions, PyCall, PyPlot 
 @pyimport seaborn as sns
 @pyimport pandas as pd
-include(pwd() * "/src/funcs.jl")
 
 # --- set the seed
 if false # < --- set to false if you want to use a specific seed
 	seedstart = rand(UInt64)
 else
-	seedstart = 0x182d22f551268f03 	# max scan pte ≈ 
+	# seedstart = 0x182d22f551268f03 	# max scan pte ≈ 
 								   		# 𝛘2       pte ≈ 
 								   		# β model  pte ≈ 
 	#seedstart = 0xc84e63463536b6fe 	# max scan pte ≈ 
 								   		# 𝛘2       pte ≈ 
 								   		# β model  pte ≈ 
-	#seedstart = 0x6d800cba0725d111 	# max scan pte ≈ 
+	seedstart = 0x6d800cba0725d111 	# max scan pte ≈ 
  										# 𝛘2       pte ≈ 
  										# β model  pte ≈ 
 end
@@ -62,10 +61,8 @@ const ell          = collect(0:5000)[indexrange]
 const n            = length(indexrange)
 const fwhm         = 20 			              # <---- radius of ell smoothing of dCl_dPa
 const lcdm_fid_par = [0.0825,  0.125,   3.218,  0.010413, 0.97,  0.022]
-#     lcdm_names   = ["tau",   "omch2", "logA", "theta",  "ns",  "ombh2"] # <---- defined in /src/funcs.jl 
+const lcdm_names = [:tau,  :omch2,  :logA, :theta  , :ns,  :ombh2]
 const cl_fid       = trans_to_pico(lcdm_fid_par)[indexrange]
-
-
 
 
 # ----- make noise_var
@@ -77,10 +74,30 @@ end
 
 
 
+# get the cov matrix for lcdm
+const lcdm_cov = let
+		covpath = joinpath(LDAforCMB.pathtosrc, "chain_data/proposal.covmat")
+		propcov = map(Float64, readdlm(covpath))
+		propcov_names = 
+			covpath |> 
+			open |> 
+			readline |> 
+			split |> 
+			x->convert(Array{ASCIIString},x) |>
+			x->x[2:end]
+
+		lcdmi = [1, 9, 12, 14, 15, 16]
+		propcov[lcdmi,lcdmi]  # <-- gives the corresponding cov mat
+	end
+const lcdm_chol = chol(lcdm_cov, Val{:L})
+
+
+
+
 # -----  make S_L, N (LCDM signal cov and noise cov matrix)
 const S_L, N, dCl_dtheta =  let
 	dx = diagm(1e-6 * ones(6))
-	dCl_dtheta = Array(Float64, n, 6)
+	dCl_dtheta = Array(Float64, length(ell), 6)
 	for k=1:6
 		dCl_dtheta[:,k] =  (trans_to_pico(lcdm_fid_par + dx[:,k]) - trans_to_pico(lcdm_fid_par))[indexrange] /  dx[k,k]
 	end 
@@ -94,9 +111,9 @@ end
 
 # -----  make S_P, X (exotic cov matrix, LDA exotic design)
 const S_P, S_Pforsim, X, Xfull, eigfull = let
-	responses_Pa       = readcsv("src/covariances/responses.csv")[indexrange, 30:(end-60)]
-	responses_transfer = transpose(readcsv("src/covariances/responses_transfer.csv"))[indexrange, :] 
-	lcdm_fid           = readcsv("src/covariances/lcdm_fid.csv")[indexrange]
+	responses_Pa       = readcsv(joinpath(LDAforCMB.pathtosrc, "covariances/responses.csv"))[indexrange, 30:(end-60)]
+	responses_transfer = transpose(readcsv(joinpath(LDAforCMB.pathtosrc, "covariances/responses_transfer.csv")))[indexrange, :] 
+	lcdm_fid           = readcsv(joinpath(LDAforCMB.pathtosrc, "covariances/lcdm_fid.csv"))[indexrange]
 	
 	dCl_dT   = responses_transfer .- lcdm_fid
 	dCl_dPa  = responses_Pa .- lcdm_fid  
@@ -239,7 +256,7 @@ function gendata(scalefactor)
 	dp           = samp_cov(S_Pforsim)  # <---- exotic fluctuation
 	cl_exotic    = cl_lcdm 
 	cl_exotic   += exotic_on ? (dp .* scalefactor) : zeros(cl_exotic)
-	cl_obs    	 = cl_exotic + √(var_of_cls(ell, cl_exotic)) .* randn(n)
+	cl_obs    	 = cl_exotic + √(var_of_cls(ell, cl_exotic)) .* randn(length(ell))
 	cl_obs, cl_exotic, cl_lcdm, cl_lcdm_pars
 end
 
@@ -348,7 +365,7 @@ function sim_maxscanChi2(Xfull, clmle, n_sims)
 	sims = zeros(n_sims)
 	sims_maxat = zeros(n_sims)
 	for k = 1:n_sims
-		noisesim = √(var_of_cls(ell, clmle)) .* randn(n)
+		noisesim = √(var_of_cls(ell, clmle)) .* randn(length(ell))
 		sims[k], sims_maxat[k] = maxscanChi2(Xfull, clmle + noisesim, clmle)
 	end
 	return sims, sims_maxat
@@ -356,7 +373,7 @@ end
 function sim_redularChi2(Xfull,  clmle, n_sims)
 	sims = zeros(n_sims)
 	for k = 1:n_sims
-		noisesim = √(var_of_cls(ell, clmle)) .* randn(n)
+		noisesim = √(var_of_cls(ell, clmle)) .* randn(length(ell))
 		sims[k] = redularChi2(Xfull, clmle + noisesim, clmle)
 	end
 	return sims
