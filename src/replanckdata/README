@@ -1,0 +1,9 @@
+Hi Ethan, 
+
+N contains the noise covariance matrix, but all entries above the diagonal are zero. 
+
+I ordered the lcdm parameters as omega_b*h^2, omega_c*h^2, theta, A_s, n_s, tau.
+
+The WMAP posterior covariance matrix, best fit, and derivatives am giving you are in terms of A_s directly, not 10^9A_s or log(A_s).
+
+
